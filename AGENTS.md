@@ -103,10 +103,15 @@
 - Format check: `pnpm format` (oxfmt --check)
 - Format fix: `pnpm format:fix` (oxfmt --write)
 - Tests: `pnpm test` (vitest); coverage: `pnpm test:coverage`
+- Run a single test file: `pnpm exec vitest run path/to/file.test.ts`
 
 ## Coding Style & Naming Conventions
 
 - Language: TypeScript (ESM). Prefer strict typing; avoid `any`.
+- Import conventions: use `.js` extension for cross-package imports (ESM); use `import type { X }` for type-only imports.
+- Anti-redundancy: before creating any formatter, utility, or helper, search for existing implementations first. Import directly from the original source — avoid re-export wrapper files.
+- Source-of-truth locations: time formatting in `src/infra/format-time`, tables in `src/terminal/table.ts`, theme/colors in `src/terminal/theme.ts`, progress in `src/cli/progress.ts`.
+- Control UI (`ui/`): uses Lit with **legacy decorators** (`experimentalDecorators: true`, `useDefineForClassFields: false`). Use `@state() foo = "bar"` / `@property({ type: Number }) count = 0` style — do not use standard `accessor` decorators unless the UI build tooling is also updated.
 - Formatting/linting via Oxlint and Oxfmt; run `pnpm check` before commits.
 - Never add `@ts-nocheck` and do not disable `no-explicit-any`; fix root causes and update Oxlint/Oxfmt config only when required.
 - Dynamic import guardrail: do not mix `await import("x")` and static `import ... from "x"` for the same module in production code paths. If you need lazy loading, create a dedicated `*.runtime.ts` boundary (that re-exports from `x`) and dynamically import that boundary from lazy callers only.
@@ -194,6 +199,22 @@
 - Patch + publish: `gh api -X PATCH /repos/openclaw/openclaw/security-advisories/<GHSA> --input /tmp/ghsa.patch.json` (publish = include `"state":"published"`; no `/publish` endpoint)
 - If publish fails (HTTP 422): missing `severity`/`description`/`vulnerabilities[]`, or private fork has open PRs
 - Verify: re-fetch; ensure `state=published`, `published_at` set; `jq -r .description | rg '\\\\n'` returns nothing
+
+## Retrieval Protocol
+
+Before doing non-trivial work:
+
+- memory_search for the project/topic/user preference
+- memory_get the referenced file chunk if needed
+- Then proceed with the task
+
+## Memory Protocol
+
+- Before answering questions about past work: search memory first
+- Before starting any new task: check memory/today's date for active context
+- When you learn something important: write it to the appropriate file immediately
+- When corrected on a mistake: add the correction as a rule to MEMORY.md
+- When a session is ending or context is large: summarize to memory/YYYY-MM-DD.md
 
 ## Troubleshooting
 

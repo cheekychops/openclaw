@@ -1,4 +1,5 @@
 import { Routes } from "discord-api-types/v10";
+import { getAcpSessionManager } from "../../acp/control-plane/manager.js";
 import { resolveThreadBindingConversationIdFromBindingId } from "../../channels/thread-binding-id.js";
 import { getRuntimeConfigSnapshot, type OpenClawConfig } from "../../config/config.js";
 import { logVerbose } from "../../globals.js";
@@ -25,6 +26,7 @@ import {
   resolveThreadBindingThreadName,
 } from "./thread-bindings.messages.js";
 import {
+  BINDINGS_BY_SESSION_KEY,
   BINDINGS_BY_THREAD_ID,
   forgetThreadBindingToken,
   getThreadBindingToken,
@@ -168,6 +170,7 @@ export function createThreadBindingManager(
     enableSweeper?: boolean;
     idleTimeoutMs?: number;
     maxAgeMs?: number;
+    cfg?: OpenClawConfig;
   } = {},
 ): ThreadBindingManager {
   ensureBindingsLoaded();
@@ -525,11 +528,31 @@ export function createThreadBindingManager(
               logVerbose(
                 `discord thread binding sweep removing stale binding ${binding.threadId}: ${summarizeDiscordError(err)}`,
               );
+              // Unbind first so the session-key reference count drops.
               manager.unbindThread({
                 threadId: binding.threadId,
                 reason: "thread-delete",
                 sendFarewell: false,
               });
+              // Only close ACP session if no other threads still reference it.
+              if (params.cfg && binding.targetKind === "acp") {
+                const remaining = BINDINGS_BY_SESSION_KEY.get(binding.targetSessionKey);
+                if (!remaining || remaining.size === 0) {
+                  try {
+                    await getAcpSessionManager().closeSession({
+                      cfg: params.cfg,
+                      sessionKey: binding.targetSessionKey,
+                      reason: "thread-deleted",
+                      requireAcpSession: false,
+                      allowBackendUnavailable: true,
+                    });
+                  } catch (acpErr) {
+                    logVerbose(
+                      `discord thread binding sweep ACP close failed for ${binding.threadId}: ${String(acpErr)}`,
+                    );
+                  }
+                }
+              }
               continue;
             }
             logVerbose(

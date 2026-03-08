@@ -8,6 +8,7 @@ import {
   ThreadUpdateListener,
   type User,
 } from "@buape/carbon";
+import { getAcpSessionManager } from "../../acp/control-plane/manager.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import { danger, logVerbose } from "../../globals.js";
 import { formatDurationSeconds } from "../../infra/format-time/format-duration.ts";
@@ -33,6 +34,12 @@ import { formatDiscordReactionEmoji, formatDiscordUserTag } from "./format.js";
 import { resolveDiscordChannelInfo } from "./message-utils.js";
 import { setPresence } from "./presence-cache.js";
 import { isThreadArchived } from "./thread-bindings.discord-api.js";
+import { getThreadBindingManager } from "./thread-bindings.manager.js";
+import {
+  BINDINGS_BY_SESSION_KEY,
+  BINDINGS_BY_THREAD_ID,
+  resolveBindingRecordKey,
+} from "./thread-bindings.state.js";
 import { closeDiscordThreadSessions } from "./thread-session-close.js";
 import { normalizeDiscordListenerTimeoutMs, runDiscordTaskWithTimeout } from "./timeouts.js";
 
@@ -766,6 +773,78 @@ export class DiscordThreadUpdateListener extends ThreadUpdateListener {
       onError: (err) => {
         const logger = this.logger ?? discordEventQueueLog;
         logger.error(danger(`discord thread-update handler failed: ${String(err)}`));
+      },
+    });
+  }
+}
+
+export class DiscordThreadDeleteListener extends ThreadUpdateListener {
+  type = "THREAD_DELETE" as const;
+
+  constructor(
+    private cfg: OpenClawConfig,
+    private accountId: string,
+    private logger?: Logger,
+  ) {
+    super();
+  }
+
+  async handle(data: ThreadUpdateEvent) {
+    await runDiscordListenerWithSlowLog({
+      logger: this.logger,
+      listener: this.constructor.name,
+      event: this.type,
+      run: async () => {
+        const threadId = "id" in data && typeof data.id === "string" ? data.id : undefined;
+        if (!threadId) {
+          return;
+        }
+        const logger = this.logger ?? discordEventQueueLog;
+        logger.info("Discord thread deleted — cleaning up ACP session", { threadId });
+
+        const bindingKey = resolveBindingRecordKey({
+          accountId: this.accountId,
+          threadId,
+        });
+        const binding = bindingKey ? BINDINGS_BY_THREAD_ID.get(bindingKey) : undefined;
+
+        // Unbind this thread first so the session-key reference count drops.
+        const manager = getThreadBindingManager(this.accountId);
+        if (manager && binding) {
+          manager.unbindThread({
+            threadId,
+            reason: "thread-delete",
+            sendFarewell: false,
+          });
+        }
+
+        // Only close the ACP session if no other threads still reference it.
+        if (binding?.targetKind === "acp") {
+          const remaining = BINDINGS_BY_SESSION_KEY.get(binding.targetSessionKey);
+          if (!remaining || remaining.size === 0) {
+            try {
+              await getAcpSessionManager().closeSession({
+                cfg: this.cfg,
+                sessionKey: binding.targetSessionKey,
+                reason: "thread-deleted",
+                requireAcpSession: false,
+                allowBackendUnavailable: true,
+              });
+            } catch (err) {
+              logger.error(danger(`ACP session close on thread delete failed: ${String(err)}`));
+            }
+          }
+        }
+
+        await closeDiscordThreadSessions({
+          cfg: this.cfg,
+          accountId: this.accountId,
+          threadId,
+        });
+      },
+      onError: (err) => {
+        const logger = this.logger ?? discordEventQueueLog;
+        logger.error(danger(`discord thread-delete handler failed: ${String(err)}`));
       },
     });
   }

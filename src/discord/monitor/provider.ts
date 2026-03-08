@@ -70,6 +70,7 @@ import {
   DiscordPresenceListener,
   DiscordReactionListener,
   DiscordReactionRemoveListener,
+  DiscordThreadDeleteListener,
   DiscordThreadUpdateListener,
   registerDiscordListener,
 } from "./listeners.js";
@@ -581,6 +582,7 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
         cfg,
         idleTimeoutMs: threadBindingIdleTimeoutMs,
         maxAgeMs: threadBindingMaxAgeMs,
+        cfg,
       })
     : createNoopThreadBindingManager(account.accountId);
   if (threadBindingsEnabled) {
@@ -942,6 +944,10 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
     registerDiscordListener(
       client.listeners,
       new DiscordThreadUpdateListener(cfg, account.accountId, logger),
+    );
+    registerDiscordListener(
+      client.listeners,
+      new DiscordThreadDeleteListener(cfg, account.accountId, logger),
     );
 
     if (discordCfg.intents?.presence) {

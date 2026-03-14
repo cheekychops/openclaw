@@ -5,8 +5,21 @@ import { isSilentReplyText, SILENT_REPLY_TOKEN } from "../../auto-reply/tokens.j
 import type { ReplyPayload } from "../../auto-reply/types.js";
 import type { MarkdownTableMode } from "../../config/types.base.js";
 import type { RuntimeEnv } from "../../runtime.js";
+import { parseSlackBlocksInput } from "../blocks-input.js";
 import { markdownToSlackMrkdwnChunks } from "../format.js";
 import { sendMessageSlack, type SlackSendIdentity } from "../send.js";
+
+export function readSlackReplyBlocks(payload: ReplyPayload) {
+  const slackData = payload.channelData?.slack;
+  if (!slackData || typeof slackData !== "object" || Array.isArray(slackData)) {
+    return undefined;
+  }
+  try {
+    return parseSlackBlocksInput((slackData as { blocks?: unknown }).blocks);
+  } catch {
+    return undefined;
+  }
+}
 
 export async function deliverReplies(params: {
   replies: ReplyPayload[];
@@ -26,19 +39,24 @@ export async function deliverReplies(params: {
     const threadTs = inlineReplyToId ?? params.replyThreadTs;
     const mediaList = payload.mediaUrls ?? (payload.mediaUrl ? [payload.mediaUrl] : []);
     const text = payload.text ?? "";
-    if (!text && mediaList.length === 0) {
+    const slackBlocks = readSlackReplyBlocks(payload);
+    if (!text && mediaList.length === 0 && !slackBlocks?.length) {
       continue;
     }
 
     if (mediaList.length === 0) {
       const trimmed = text.trim();
-      if (!trimmed || isSilentReplyText(trimmed, SILENT_REPLY_TOKEN)) {
+      if (!trimmed && !slackBlocks?.length) {
+        continue;
+      }
+      if (trimmed && isSilentReplyText(trimmed, SILENT_REPLY_TOKEN)) {
         continue;
       }
       await sendMessageSlack(params.target, trimmed, {
         token: params.token,
         threadTs,
         accountId: params.accountId,
+        ...(slackBlocks?.length ? { blocks: slackBlocks } : {}),
         ...(params.identity ? { identity: params.identity } : {}),
       });
     } else {

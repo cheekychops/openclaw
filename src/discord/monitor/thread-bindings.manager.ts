@@ -170,7 +170,6 @@ export function createThreadBindingManager(
     enableSweeper?: boolean;
     idleTimeoutMs?: number;
     maxAgeMs?: number;
-    cfg?: OpenClawConfig;
   } = {},
 ): ThreadBindingManager {
   ensureBindingsLoaded();

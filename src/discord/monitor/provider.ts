@@ -582,7 +582,6 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
         cfg,
         idleTimeoutMs: threadBindingIdleTimeoutMs,
         maxAgeMs: threadBindingMaxAgeMs,
-        cfg,
       })
     : createNoopThreadBindingManager(account.accountId);
   if (threadBindingsEnabled) {
